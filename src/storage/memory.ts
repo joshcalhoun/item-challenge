@@ -6,7 +6,7 @@
  */
 
 import { randomUUID } from 'crypto';
-import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery } from '../types/item.js';
+import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery, ListItemsResult } from '../types/item.js';
 import { ItemStorage } from './interface.js';
 
 export class MemoryStorage implements ItemStorage {
@@ -62,7 +62,7 @@ export class MemoryStorage implements ItemStorage {
     return updated;
   }
 
-  async listItems(query: ListItemsQuery): Promise<{ items: ExamItem[]; total: number }> {
+  async listItems(query: ListItemsQuery): Promise<ListItemsResult> {
     let items = Array.from(this.items.values());
 
     // Filter by subject
@@ -75,14 +75,25 @@ export class MemoryStorage implements ItemStorage {
       items = items.filter(item => item.metadata.status === query.status);
     }
 
-    const total = items.length;
-
-    // Pagination
-    const offset = query.offset || 0;
+    // Cursor-based pagination (cursor is the item ID to start after)
     const limit = query.limit || 10;
-    items = items.slice(offset, offset + limit);
+    let startIndex = 0;
 
-    return { items, total };
+    if (query.cursor) {
+      const cursorId = Buffer.from(query.cursor, 'base64url').toString();
+      const cursorIndex = items.findIndex(item => item.id === cursorId);
+      if (cursorIndex >= 0) {
+        startIndex = cursorIndex + 1;
+      }
+    }
+
+    const page = items.slice(startIndex, startIndex + limit);
+    const hasMore = startIndex + limit < items.length;
+    const nextCursor = hasMore
+      ? Buffer.from(page[page.length - 1].id).toString('base64url')
+      : undefined;
+
+    return { items: page, cursor: nextCursor };
   }
 
   async createVersion(id: string): Promise<ExamItem | null> {

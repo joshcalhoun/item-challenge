@@ -8,16 +8,16 @@ describe('listItemsHandler', () => {
     await createTestItem();
     const result = await listItemsHandler({});
     expect(result.statusCode).toBe(200);
-    const body = result.body as { items: unknown[]; total: number };
+    const body = result.body as { items: unknown[]; cursor?: string };
     expect(body).toHaveProperty('items');
-    expect(body).toHaveProperty('total');
+    expect(body.items.length).toBeGreaterThanOrEqual(1);
   });
 
   it('should filter by subject', async () => {
     await createTestItem({ subject: 'AP Calculus' });
     const result = await listItemsHandler({ subject: 'AP Calculus' });
     expect(result.statusCode).toBe(200);
-    const body = result.body as { items: Array<{ subject: string }>; total: number };
+    const body = result.body as unknown as{ items: Array<{ subject: string }>; total: number };
     expect(body.items.every(i => i.subject === 'AP Calculus')).toBe(true);
   });
 
@@ -37,8 +37,8 @@ describe('listItemsHandler', () => {
     await createTestItem({ subject: 'AP Physics', metadata: { author: 'a', status: 'draft', tags: [] } });
     const result = await listItemsHandler({ subject: 'AP Physics', status: 'approved' });
     expect(result.statusCode).toBe(200);
-    const body = result.body as { items: Array<{ subject: string; metadata: { status: string } }>; total: number };
+    const body = result.body as { items: Array<{ subject: string; metadata: { status: string } }>; cursor?: string };
+    expect(body.items.length).toBeGreaterThanOrEqual(1);
     expect(body.items.every(i => i.subject === 'AP Physics' && i.metadata.status === 'approved')).toBe(true);
-    expect(body.total).toBeGreaterThanOrEqual(1);
   });
 });

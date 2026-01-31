@@ -53,7 +53,12 @@ export interface UpdateItemRequest {
 
 export interface ListItemsQuery {
   limit?: number;
-  offset?: number;
+  cursor?: string;
   subject?: string;
   status?: string;
+}
+
+export interface ListItemsResult {
+  items: ExamItem[];
+  cursor?: string;
 }

@@ -6,7 +6,7 @@ import {
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'crypto';
-import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery } from '../types/item.js';
+import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery, ListItemsResult } from '../types/item.js';
 import { ItemStorage } from './interface.js';
 
 export class DynamoDBStorage implements ItemStorage {
@@ -94,55 +94,57 @@ export class DynamoDBStorage implements ItemStorage {
     return updated;
   }
 
-  async listItems(query: ListItemsQuery): Promise<{ items: ExamItem[]; total: number }> {
+  async listItems(query: ListItemsQuery): Promise<ListItemsResult> {
     const limit = query.limit || 10;
-    const offset = query.offset || 0;
 
-    // If filtering by subject, use the SubjectStatusIndex GSI (PK=subject, SK=SK)
-    // Query for CURRENT records only via SK = 'CURRENT'
-    if (query.subject) {
-      const result = await this.client.send(new QueryCommand({
-        TableName: this.tableName,
-        IndexName: 'SubjectStatusIndex',
-        KeyConditionExpression: 'subject = :subject AND SK = :sk',
-        ExpressionAttributeValues: {
-          ':subject': query.subject,
-          ':sk': 'CURRENT',
-        },
-        ...(query.status && {
+    // The cursor is a base64url-encoded JSON representation of DynamoDB's LastEvaluatedKey.
+    // base64url keeps the composite key object opaque and URL-safe for use as a query parameter.
+    const exclusiveStartKey = query.cursor
+      ? JSON.parse(Buffer.from(query.cursor, 'base64url').toString())
+      : undefined;
+
+    const statusFilter = query.status
+      ? {
           FilterExpression: 'metadata.#st = :status',
           ExpressionAttributeNames: { '#st': 'status' },
+        }
+      : undefined;
+
+    const commandInput = query.subject
+      ? {
+          TableName: this.tableName,
+          IndexName: 'SubjectStatusIndex',
+          KeyConditionExpression: 'subject = :subject AND SK = :sk',
           ExpressionAttributeValues: {
             ':subject': query.subject,
             ':sk': 'CURRENT',
-            ':status': query.status,
+            ...(query.status && { ':status': query.status }),
           },
-        }),
-      }));
+          ...statusFilter,
+          Limit: limit,
+          ExclusiveStartKey: exclusiveStartKey,
+        }
+      : {
+          TableName: this.tableName,
+          IndexName: 'EntityTypeIndex',
+          KeyConditionExpression: 'SK = :sk',
+          ExpressionAttributeValues: {
+            ':sk': 'CURRENT',
+            ...(query.status && { ':status': query.status }),
+          },
+          ...statusFilter,
+          Limit: limit,
+          ExclusiveStartKey: exclusiveStartKey,
+        };
 
-      const allItems = (result.Items || []).map(({ PK, SK, ...item }) => item) as ExamItem[];
-      const paged = allItems.slice(offset, offset + limit);
-      return { items: paged, total: allItems.length };
-    }
+    const result = await this.client.send(new QueryCommand(commandInput));
 
-    // Use EntityTypeIndex GSI to query all CURRENT records without scanning
-    const result = await this.client.send(new QueryCommand({
-      TableName: this.tableName,
-      IndexName: 'EntityTypeIndex',
-      KeyConditionExpression: 'SK = :sk',
-      ExpressionAttributeValues: {
-        ':sk': 'CURRENT',
-        ...(query.status && { ':status': query.status }),
-      },
-      ...(query.status && {
-        FilterExpression: 'metadata.#st = :status',
-        ExpressionAttributeNames: { '#st': 'status' },
-      }),
-    }));
+    const items = (result.Items || []).map(({ PK, SK, ...item }) => item) as ExamItem[];
+    const nextCursor = result.LastEvaluatedKey
+      ? Buffer.from(JSON.stringify(result.LastEvaluatedKey)).toString('base64url')
+      : undefined;
 
-    const allItems = (result.Items || []).map(({ PK, SK, ...item }) => item) as ExamItem[];
-    const paged = allItems.slice(offset, offset + limit);
-    return { items: paged, total: allItems.length };
+    return { items, cursor: nextCursor };
   }
 
   async createVersion(id: string): Promise<ExamItem | null> {

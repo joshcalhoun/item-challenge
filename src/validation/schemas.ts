@@ -46,7 +46,7 @@ export const ItemIdSchema = z.string().uuid();
 
 export const ListItemsQuerySchema = z.object({
   limit: z.coerce.number().int().min(1).max(100).optional(),
-  offset: z.coerce.number().int().min(0).optional(),
+  cursor: z.string().optional(),
   subject: z.string().optional(),
   status: z.enum(statuses).optional(),
 });
