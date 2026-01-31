@@ -8,6 +8,8 @@ export type ErrorCode =
 | 'INVALID_ID'
 | 'INTERNAL_ERROR'
 | 'INVALID_JSON'
+| 'INVALID_CURSOR'
+| 'MISSING_BODY'
 | 'AUDIT_TRAIL_NOT_FOUND';
 
 interface ErrorBody {
@@ -50,3 +52,5 @@ export const auditTrailNotFoundError = (): ErrorResponse => createErrorResponse(
 export const internalError = (): ErrorResponse => createErrorResponse(500, 'INTERNAL_ERROR', 'An internal server error occurred');
 
 export const invalidJsonError = (): ErrorResponse => createErrorResponse(400, 'INVALID_JSON', 'The request body contains invalid JSON');
+
+export const cursorError = (): ErrorResponse => createErrorResponse(400, 'INVALID_CURSOR', 'The provided cursor is invalid');

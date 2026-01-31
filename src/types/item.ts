@@ -2,10 +2,14 @@
  * Exam Item Types
  */
 
+export type ItemType = 'multiple-choice' | 'free-response' | 'essay';
+export type ItemStatus = 'draft' | 'review' | 'approved' | 'archived';
+export type SecurityLevel = 'standard' | 'secure' | 'highly-secure';
+
 export interface ExamItem {
   id: string;
   subject: string; // e.g., "AP Biology", "AP Calculus"
-  itemType: string; // "multiple-choice", "free-response", "essay"
+  itemType: ItemType;
   difficulty: number; // 1-5
   content: {
     question: string;
@@ -18,15 +22,15 @@ export interface ExamItem {
     created: number; // timestamp
     lastModified: number; // timestamp
     version: number;
-    status: string; // "draft", "review", "approved", "archived"
+    status: ItemStatus;
     tags: string[];
   };
-  securityLevel: string; // "standard", "secure", "highly-secure"
+  securityLevel: SecurityLevel;
 }
 
 export interface CreateItemRequest {
   subject: string;
-  itemType: string;
+  itemType: ItemType;
   difficulty: number;
   content: {
     question: string;
@@ -36,19 +40,19 @@ export interface CreateItemRequest {
   };
   metadata: {
     author: string;
-    status: string;
+    status: ItemStatus;
     tags: string[];
   };
-  securityLevel: string;
+  securityLevel: SecurityLevel;
 }
 
 export interface UpdateItemRequest {
   subject?: string;
-  itemType?: string;
+  itemType?: ItemType;
   difficulty?: number;
   content?: Partial<ExamItem["content"]>;
   metadata?: Partial<ExamItem["metadata"]>;
-  securityLevel?: string;
+  securityLevel?: SecurityLevel;
 }
 
 export interface ListItemsQuery {

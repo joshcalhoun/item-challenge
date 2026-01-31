@@ -10,6 +10,16 @@ describe('createItemHandler', () => {
     expect(result.body).toHaveProperty('id');
   });
 
+  it('should reject null body', async () => {
+    const result = await createItemHandler(null);
+    expect(result.statusCode).toBe(400);
+  });
+
+  it('should reject undefined body', async () => {
+    const result = await createItemHandler(undefined);
+    expect(result.statusCode).toBe(400);
+  });
+
   it('should reject missing required fields', async () => {
     const result = await createItemHandler({ subject: 'AP Biology' });
     expect(result.statusCode).toBe(400);

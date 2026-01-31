@@ -1,6 +1,7 @@
 import { ListItemsQuery } from '../types/item.js';
 import { ListItemsQuerySchema } from '../validation/schemas.js';
-import { internalError, validationError } from './errors.js';
+import { InvalidCursorError } from '../storage/dynamodb.js';
+import { cursorError, internalError, validationError } from './errors.js';
 import { storage } from './storage.js';
 
 export async function listItemsHandler(query: Record<string, string | undefined>) {
@@ -18,6 +19,9 @@ export async function listItemsHandler(query: Record<string, string | undefined>
             body: items,
         };
     } catch (error) {
+        if (error instanceof InvalidCursorError) {
+            return cursorError();
+        }
         console.error('Error listing items:', error);
         return internalError();
     }

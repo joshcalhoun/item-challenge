@@ -5,9 +5,24 @@ import {
   GetCommand,
   QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
+import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { randomUUID } from 'crypto';
 import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery, ListItemsResult } from '../types/item.js';
 import { ItemStorage } from './interface.js';
+
+export class InvalidCursorError extends Error {
+  constructor(message = 'Invalid pagination cursor') {
+    super(message);
+    this.name = 'InvalidCursorError';
+  }
+}
+
+export class ConflictError extends Error {
+  constructor(message = 'Item was modified by another request') {
+    super(message);
+    this.name = 'ConflictError';
+  }
+}
 
 export class DynamoDBStorage implements ItemStorage {
   private client: DynamoDBDocumentClient;
@@ -25,7 +40,7 @@ export class DynamoDBStorage implements ItemStorage {
 
   async createItem(data: CreateItemRequest): Promise<ExamItem> {
     const now = Date.now();
-    const item: ExamItem = {
+    const item = {
       id: randomUUID(),
       ...data,
       metadata: {
@@ -34,12 +49,13 @@ export class DynamoDBStorage implements ItemStorage {
         lastModified: now,
         version: 1,
       },
-    };
+    } as ExamItem;
 
-    // Write CURRENT record
+    // Write CURRENT record (prevent duplicate IDs)
     await this.client.send(new PutCommand({
       TableName: this.tableName,
       Item: { PK: `ITEM#${item.id}`, SK: 'CURRENT', ...item },
+      ConditionExpression: 'attribute_not_exists(PK)',
     }));
 
     // Write VERSION#1 snapshot
@@ -66,7 +82,7 @@ export class DynamoDBStorage implements ItemStorage {
     const existing = await this.getItem(id);
     if (!existing) return null;
 
-    const updated: ExamItem = {
+    const updated = {
       ...existing,
       ...data,
       content: data.content ? { ...existing.content, ...data.content } : existing.content,
@@ -76,13 +92,24 @@ export class DynamoDBStorage implements ItemStorage {
         lastModified: Date.now(),
         version: existing.metadata.version + 1,
       },
-    };
+    } as ExamItem;
 
-    // Update CURRENT
-    await this.client.send(new PutCommand({
-      TableName: this.tableName,
-      Item: { PK: `ITEM#${id}`, SK: 'CURRENT', ...updated },
-    }));
+    // Update CURRENT with optimistic locking
+    try {
+      await this.client.send(new PutCommand({
+        TableName: this.tableName,
+        Item: { PK: `ITEM#${id}`, SK: 'CURRENT', ...updated },
+        ConditionExpression: 'attribute_not_exists(PK) OR metadata.version = :expectedVersion',
+        ExpressionAttributeValues: {
+          ':expectedVersion': existing.metadata.version,
+        },
+      }));
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        throw new ConflictError();
+      }
+      throw error;
+    }
 
     // Write version snapshot
     const versionKey = String(updated.metadata.version).padStart(6, '0');
@@ -99,9 +126,14 @@ export class DynamoDBStorage implements ItemStorage {
 
     // The cursor is a base64url-encoded JSON representation of DynamoDB's LastEvaluatedKey.
     // base64url keeps the composite key object opaque and URL-safe for use as a query parameter.
-    const exclusiveStartKey = query.cursor
-      ? JSON.parse(Buffer.from(query.cursor, 'base64url').toString())
-      : undefined;
+    let exclusiveStartKey: Record<string, unknown> | undefined;
+    if (query.cursor) {
+      try {
+        exclusiveStartKey = JSON.parse(Buffer.from(query.cursor, 'base64url').toString());
+      } catch {
+        throw new InvalidCursorError();
+      }
+    }
 
     const statusFilter = query.status
       ? {
@@ -160,11 +192,22 @@ export class DynamoDBStorage implements ItemStorage {
       },
     };
 
-    // Update CURRENT
-    await this.client.send(new PutCommand({
-      TableName: this.tableName,
-      Item: { PK: `ITEM#${id}`, SK: 'CURRENT', ...newVersion },
-    }));
+    // Update CURRENT with optimistic locking
+    try {
+      await this.client.send(new PutCommand({
+        TableName: this.tableName,
+        Item: { PK: `ITEM#${id}`, SK: 'CURRENT', ...newVersion },
+        ConditionExpression: 'attribute_not_exists(PK) OR metadata.version = :expectedVersion',
+        ExpressionAttributeValues: {
+          ':expectedVersion': existing.metadata.version,
+        },
+      }));
+    } catch (error) {
+      if (error instanceof ConditionalCheckFailedException) {
+        throw new ConflictError();
+      }
+      throw error;
+    }
 
     // Write version snapshot
     const versionKey = String(newVersion.metadata.version).padStart(6, '0');

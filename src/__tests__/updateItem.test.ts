@@ -58,4 +58,18 @@ describe('updateItemHandler', () => {
     expect(result.statusCode).toBe(400);
     expect(result.body).toHaveProperty('error.code', 'VALIDATION_ERROR');
   });
+
+  it('should strip or reject unknown fields in update', async () => {
+    const item = await createTestItem();
+    const result = await updateItemHandler(item.id, {
+      difficulty: 4,
+      unknownField: 'should-not-exist',
+    } as any);
+    // Either rejected (400) or accepted with unknown field stripped (200 without field)
+    if (result.statusCode === 200) {
+      expect(result.body).not.toHaveProperty('unknownField');
+    } else {
+      expect(result.statusCode).toBe(400);
+    }
+  });
 });

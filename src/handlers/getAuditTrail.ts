@@ -6,7 +6,7 @@ export async function getAuditTrailHandler(id: string) {
     try {
         const parsedId = ItemIdSchema.safeParse(id);
         if (!parsedId.success) {
-            return invalidIdError();;
+            return invalidIdError();
         }
 
         const versions = await storage.getAuditTrail(parsedId.data);

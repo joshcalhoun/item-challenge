@@ -8,6 +8,7 @@
 import { randomUUID } from 'crypto';
 import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery, ListItemsResult } from '../types/item.js';
 import { ItemStorage } from './interface.js';
+import { InvalidCursorError } from './dynamodb.js';
 
 export class MemoryStorage implements ItemStorage {
   private items: Map<string, ExamItem> = new Map();
@@ -15,7 +16,7 @@ export class MemoryStorage implements ItemStorage {
 
   async createItem(data: CreateItemRequest): Promise<ExamItem> {
     const now = Date.now();
-    const item: ExamItem = {
+    const item = {
       id: randomUUID(),
       ...data,
       metadata: {
@@ -24,7 +25,7 @@ export class MemoryStorage implements ItemStorage {
         lastModified: now,
         version: 1,
       },
-    };
+    } as ExamItem;
 
     this.items.set(item.id, item);
     this.versions.set(item.id, [{ ...item }]);
@@ -40,7 +41,7 @@ export class MemoryStorage implements ItemStorage {
     const item = this.items.get(id);
     if (!item) return null;
 
-    const updated: ExamItem = {
+    const updated = {
       ...item,
       ...data,
       content: data.content ? { ...item.content, ...data.content } : item.content,
@@ -50,7 +51,7 @@ export class MemoryStorage implements ItemStorage {
         lastModified: Date.now(),
         version: item.metadata.version + 1,
       },
-    };
+    } as ExamItem;
 
     this.items.set(id, updated);
 
@@ -80,7 +81,17 @@ export class MemoryStorage implements ItemStorage {
     let startIndex = 0;
 
     if (query.cursor) {
-      const cursorId = Buffer.from(query.cursor, 'base64url').toString();
+      let cursorId: string;
+      try {
+        cursorId = Buffer.from(query.cursor, 'base64url').toString();
+      } catch {
+        throw new InvalidCursorError();
+      }
+      // If the decoded cursor doesn't look like a valid UUID, it's malformed
+      const uuidRegex = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+      if (!uuidRegex.test(cursorId)) {
+        throw new InvalidCursorError();
+      }
       const cursorIndex = items.findIndex(item => item.id === cursorId);
       if (cursorIndex >= 0) {
         startIndex = cursorIndex + 1;
