@@ -9,20 +9,9 @@ import { ConditionalCheckFailedException } from '@aws-sdk/client-dynamodb';
 import { randomUUID } from 'crypto';
 import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery, ListItemsResult } from '../types/item.js';
 import { ItemStorage } from './interface.js';
+import { InvalidCursorError, ConflictError } from './errors.js';
 
-export class InvalidCursorError extends Error {
-  constructor(message = 'Invalid pagination cursor') {
-    super(message);
-    this.name = 'InvalidCursorError';
-  }
-}
-
-export class ConflictError extends Error {
-  constructor(message = 'Item was modified by another request') {
-    super(message);
-    this.name = 'ConflictError';
-  }
-}
+export { InvalidCursorError, ConflictError };
 
 export class DynamoDBStorage implements ItemStorage {
   private client: DynamoDBDocumentClient;

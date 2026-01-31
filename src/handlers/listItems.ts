@@ -1,6 +1,6 @@
 import { ListItemsQuery } from '../types/item.js';
 import { ListItemsQuerySchema } from '../validation/schemas.js';
-import { InvalidCursorError } from '../storage/dynamodb.js';
+import { InvalidCursorError } from '../storage/errors.js';
 import { cursorError, internalError, validationError } from './errors.js';
 import { storage } from './storage.js';
 

@@ -10,6 +10,7 @@ export type ErrorCode =
 | 'INVALID_JSON'
 | 'INVALID_CURSOR'
 | 'MISSING_BODY'
+| 'CONFLICT'
 | 'AUDIT_TRAIL_NOT_FOUND';
 
 interface ErrorBody {
@@ -54,3 +55,5 @@ export const internalError = (): ErrorResponse => createErrorResponse(500, 'INTE
 export const invalidJsonError = (): ErrorResponse => createErrorResponse(400, 'INVALID_JSON', 'The request body contains invalid JSON');
 
 export const cursorError = (): ErrorResponse => createErrorResponse(400, 'INVALID_CURSOR', 'The provided cursor is invalid');
+
+export const conflictError = (): ErrorResponse => createErrorResponse(409, 'CONFLICT', 'The item was modified by another request. Please retry with the latest version.');

@@ -8,7 +8,7 @@
 import { randomUUID } from 'crypto';
 import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery, ListItemsResult } from '../types/item.js';
 import { ItemStorage } from './interface.js';
-import { InvalidCursorError } from './dynamodb.js';
+import { InvalidCursorError } from './errors.js';
 
 export class MemoryStorage implements ItemStorage {
   private items: Map<string, ExamItem> = new Map();

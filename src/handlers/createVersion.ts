@@ -1,5 +1,6 @@
 import { ItemIdSchema } from '../validation/schemas.js';
-import { internalError, invalidIdError, itemNotFoundError } from './errors.js';
+import { ConflictError } from '../storage/errors.js';
+import { conflictError, internalError, invalidIdError, itemNotFoundError } from './errors.js';
 import { storage } from './storage.js';
 
 export async function createVersionHandler(id: string) {
@@ -19,6 +20,9 @@ export async function createVersionHandler(id: string) {
             body: newVersion,
         };
     } catch (error) {
+        if (error instanceof ConflictError) {
+            return conflictError();
+        }
         console.error('Error creating version:', error);
         return internalError();
     }

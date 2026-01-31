@@ -1,5 +1,6 @@
 import { ItemIdSchema, UpdateItemSchema } from '../validation/schemas.js';
-import { internalError, invalidIdError, itemNotFoundError, validationError } from './errors.js';
+import { ConflictError } from '../storage/errors.js';
+import { conflictError, internalError, invalidIdError, itemNotFoundError, validationError } from './errors.js';
 import { storage } from './storage.js';
 
 
@@ -27,6 +28,9 @@ export async function updateItemHandler(id: string, data: unknown) {
             body: updatedItem,
         };
     } catch (error) {
+        if (error instanceof ConflictError) {
+            return conflictError();
+        }
         console.error('Error updating item:', error);
         return internalError();
     }

@@ -7,29 +7,75 @@ import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { LambdaIntegration, RestApi, Cors, AccessLogFormat, LogGroupLogDestination, MethodLoggingLevel } from 'aws-cdk-lib/aws-apigateway';
 import { Key } from 'aws-cdk-lib/aws-kms';
 
+export interface EnvironmentConfig {
+  /** 'dev' | 'staging' | 'prod' */
+  stage: string;
+  /** DynamoDB and KMS removal policy — RETAIN for prod, DESTROY for dev/staging */
+  removalPolicy: cdk.RemovalPolicy;
+  /** CloudWatch log retention */
+  logRetention: RetentionDays;
+  /** API Gateway throttle rate (requests/second) */
+  throttlingRateLimit: number;
+  /** API Gateway burst limit */
+  throttlingBurstLimit: number;
+  /** Lambda memory in MB */
+  lambdaMemorySize: number;
+  /** Lambda log level */
+  logLevel: string;
+}
+
+const ENV_DEFAULTS: Record<string, EnvironmentConfig> = {
+  dev: {
+    stage: 'dev',
+    removalPolicy: cdk.RemovalPolicy.DESTROY,
+    logRetention: RetentionDays.ONE_WEEK,
+    throttlingRateLimit: 100,
+    throttlingBurstLimit: 200,
+    lambdaMemorySize: 256,
+    logLevel: 'debug',
+  },
+  prod: {
+    stage: 'prod',
+    removalPolicy: cdk.RemovalPolicy.RETAIN,
+    logRetention: RetentionDays.THREE_MONTHS,
+    throttlingRateLimit: 1000,
+    throttlingBurstLimit: 2000,
+    lambdaMemorySize: 512,
+    logLevel: 'warn',
+  },
+};
+
+export function getEnvironmentConfig(stage?: string): EnvironmentConfig {
+  return ENV_DEFAULTS[stage || 'dev'] || ENV_DEFAULTS['dev'];
+}
+
+export interface InfrastructureStackProps extends cdk.StackProps {
+  envConfig?: EnvironmentConfig;
+}
 
 export class InfrastructureStack extends cdk.Stack {
-  constructor(scope: Construct, id: string, props?: cdk.StackProps) {
+  constructor(scope: Construct, id: string, props?: InfrastructureStackProps) {
     super(scope, id, props);
 
+    const config = props?.envConfig ?? getEnvironmentConfig('dev');
 
     // Customer-managed KMS key for DynamoDB encryption at rest
     const tableKey = new Key(this, 'ItemsTableKey', {
-      alias: 'exam-items-table-key',
+      alias: `exam-items-table-key-${config.stage}`,
       description: 'Customer-managed KMS key for ExamItems DynamoDB table encryption',
       enableKeyRotation: true,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: config.removalPolicy,
     });
 
     // Single Table design with PK and SK
     const table = new Table(this, 'ItemsTable', {
-      tableName: 'ExamItems',
+      tableName: `ExamItems-${config.stage}`,
       partitionKey: { name: 'PK', type: AttributeType.STRING },
       sortKey: { name: 'SK', type: AttributeType.STRING },
       billingMode: BillingMode.PAY_PER_REQUEST,
       pointInTimeRecovery: true,
       encryptionKey: tableKey,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      removalPolicy: config.removalPolicy,
     });
 
     // GSI for querying by subject + status
@@ -52,16 +98,17 @@ export class InfrastructureStack extends cdk.Stack {
     const defaultEnv = {
       USE_DYNAMODB: 'true',
       DYNAMODB_TABLE_NAME: table.tableName,
-      LOG_LEVEL: 'info',
+      LOG_LEVEL: config.logLevel,
+      STAGE: config.stage,
     };
 
     const defaultProps: Omit<FunctionProps, 'handler'> = {
       runtime: Runtime.NODEJS_22_X,
       code: Code.fromAsset(codePath),
-      memorySize: 256,
+      memorySize: config.lambdaMemorySize,
       timeout: cdk.Duration.seconds(10),
       environment: defaultEnv,
-      logRetention: RetentionDays.TWO_WEEKS,
+      logRetention: config.logRetention,
     };
 
     // Read-only lambdas
@@ -117,17 +164,17 @@ export class InfrastructureStack extends cdk.Stack {
 
     // API Gateway access log group
     const apiLogGroup = new LogGroup(this, 'ApiAccessLogs', {
-      retention: RetentionDays.TWO_WEEKS,
-      removalPolicy: cdk.RemovalPolicy.DESTROY,
+      retention: config.logRetention,
+      removalPolicy: config.removalPolicy,
     });
 
     // API Gateway
     const api = new RestApi(this, 'ItemApi', {
-      restApiName: 'Item Management API',
+      restApiName: `Item Management API (${config.stage})`,
       cloudWatchRole: true,
       deployOptions: {
-        throttlingRateLimit: 100,
-        throttlingBurstLimit: 200,
+        throttlingRateLimit: config.throttlingRateLimit,
+        throttlingBurstLimit: config.throttlingBurstLimit,
         accessLogDestination: new LogGroupLogDestination(apiLogGroup),
         accessLogFormat: AccessLogFormat.jsonWithStandardFields(),
         metricsEnabled: true,
