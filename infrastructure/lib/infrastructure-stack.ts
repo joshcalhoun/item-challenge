@@ -5,12 +5,21 @@ import { Table, AttributeType, BillingMode, ProjectionType} from 'aws-cdk-lib/aw
 import { FunctionProps, Runtime, Function, Code } from 'aws-cdk-lib/aws-lambda';
 import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
 import { LambdaIntegration, RestApi, Cors, AccessLogFormat, LogGroupLogDestination, MethodLoggingLevel } from 'aws-cdk-lib/aws-apigateway';
+import { Key } from 'aws-cdk-lib/aws-kms';
 
 
 export class InfrastructureStack extends cdk.Stack {
   constructor(scope: Construct, id: string, props?: cdk.StackProps) {
     super(scope, id, props);
 
+
+    // Customer-managed KMS key for DynamoDB encryption at rest
+    const tableKey = new Key(this, 'ItemsTableKey', {
+      alias: 'exam-items-table-key',
+      description: 'Customer-managed KMS key for ExamItems DynamoDB table encryption',
+      enableKeyRotation: true,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
 
     // Single Table design with PK and SK
     const table = new Table(this, 'ItemsTable', {
@@ -19,6 +28,7 @@ export class InfrastructureStack extends cdk.Stack {
       sortKey: { name: 'SK', type: AttributeType.STRING },
       billingMode: BillingMode.PAY_PER_REQUEST,
       pointInTimeRecovery: true,
+      encryptionKey: tableKey,
       removalPolicy: cdk.RemovalPolicy.DESTROY,
     });
 
@@ -74,6 +84,10 @@ export class InfrastructureStack extends cdk.Stack {
     table.grantReadData(listItemsFn);
     table.grantReadData(getAuditTrailFn);
 
+    tableKey.grantDecrypt(getItemFn);
+    tableKey.grantDecrypt(listItemsFn);
+    tableKey.grantDecrypt(getAuditTrailFn);
+
 
     // Write lambdas
     const createItemFn = new Function(this, 'CreateItemHandler', {
@@ -82,6 +96,7 @@ export class InfrastructureStack extends cdk.Stack {
     });
 
     table.grantWriteData(createItemFn);
+    tableKey.grantEncrypt(createItemFn);
 
     // Read+write lambdas
     const updateItemFn = new Function(this, 'UpdateItemHandler', {
@@ -96,6 +111,9 @@ export class InfrastructureStack extends cdk.Stack {
 
     table.grantReadWriteData(updateItemFn);
     table.grantReadWriteData(createVersionFn);
+
+    tableKey.grantEncryptDecrypt(updateItemFn);
+    tableKey.grantEncryptDecrypt(createVersionFn);
 
     // API Gateway access log group
     const apiLogGroup = new LogGroup(this, 'ApiAccessLogs', {
