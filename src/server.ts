@@ -1,26 +1,37 @@
-/**
- * Local Development Server
- *
- * A simple HTTP server for testing your handlers locally.
- * Run with: pnpm dev
- */
-
 import { createServer, IncomingMessage, ServerResponse } from 'http';
-import { getItemHandler, createItemHandler } from './handlers/example.js';
+import {
+  getItemHandler,
+  createItemHandler,
+  updateItemHandler,
+  listItemsHandler,
+  createVersionHandler,
+  getAuditTrailHandler,
+} from './handlers/index.js';
 
 const PORT = process.env.PORT || 3000;
 
 async function handleRequest(req: IncomingMessage, res: ServerResponse) {
-  const { method, url } = req;
+  const { method } = req;
+
+  const parsedUrl = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+  const pathname = parsedUrl.pathname;
 
   // Parse request body
   let body = '';
-  req.on('data', chunk => body += chunk);
+  req.on('data', (chunk: Buffer) => body += chunk);
   await new Promise(resolve => req.on('end', resolve));
 
-  const parsedBody = body ? JSON.parse(body) : null;
+  let parsedBody: unknown = null;
+  if (body) {
+    try {
+      parsedBody = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: { code: 'INVALID_JSON', message: 'Request body is not valid JSON' } }));
+      return;
+    }
+  }
 
-  console.log(`${method} ${url}`);
 
   // CORS headers
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -36,18 +47,29 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   try {
     let result;
 
-    // Example routes - implement your own routing logic
-    if (method === 'GET' && url === '/api/items/test') {
-      result = await getItemHandler('test');
-    } else if (method === 'POST' && url === '/api/items') {
+    // Match routes (longest paths first)
+    const versionMatch = pathname.match(/^\/api\/items\/([^/]+)\/versions$/);
+    const auditMatch = pathname.match(/^\/api\/items\/([^/]+)\/audit$/);
+    const itemIdMatch = pathname.match(/^\/api\/items\/([^/]+)$/);
+
+    if (method === 'POST' && versionMatch) {
+      result = await createVersionHandler(versionMatch[1]);
+    } else if (method === 'GET' && auditMatch) {
+      result = await getAuditTrailHandler(auditMatch[1]);
+    } else if (method === 'PUT' && itemIdMatch) {
+      result = await updateItemHandler(itemIdMatch[1], parsedBody);
+    } else if (method === 'GET' && pathname === '/api/items') {
+      const query: Record<string, string> = {};
+      parsedUrl.searchParams.forEach((value, key) => { query[key] = value; });
+      result = await listItemsHandler(query);
+    } else if (method === 'POST' && pathname === '/api/items') {
       result = await createItemHandler(parsedBody);
-    } else if (method === 'GET' && url?.startsWith('/api/items/')) {
-      const id = url.split('/').pop();
-      result = await getItemHandler(id!);
+    } else if (method === 'GET' && itemIdMatch) {
+      result = await getItemHandler(itemIdMatch[1]);
     } else {
       result = {
         statusCode: 404,
-        body: { error: 'Route not found' },
+        body: { error: { code: 'ITEM_NOT_FOUND', message: 'Route not found' } },
       };
     }
 
@@ -56,16 +78,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   } catch (error) {
     console.error('Server error:', error);
     res.writeHead(500, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ error: 'Internal server error' }));
+    res.end(JSON.stringify({ error: { code: 'INTERNAL_ERROR', message: 'Internal server error' } }));
   }
 }
 
 const server = createServer(handleRequest);
 
 server.listen(PORT, () => {
-  console.log(`\n🚀 Server running at http://localhost:${PORT}`);
-  console.log(`\nExample endpoints:`);
+  console.log(`\nServer running at http://localhost:${PORT}`);
+  console.log(`\nEndpoints:`);
   console.log(`  POST   http://localhost:${PORT}/api/items`);
+  console.log(`  GET    http://localhost:${PORT}/api/items`);
   console.log(`  GET    http://localhost:${PORT}/api/items/:id`);
+  console.log(`  PUT    http://localhost:${PORT}/api/items/:id`);
+  console.log(`  POST   http://localhost:${PORT}/api/items/:id/versions`);
+  console.log(`  GET    http://localhost:${PORT}/api/items/:id/audit`);
   console.log(`\nPress Ctrl+C to stop\n`);
 });
