@@ -14,4 +14,5 @@ export interface ItemStorage {
   listItems(query: ListItemsQuery): Promise<{ items: ExamItem[]; total: number }>;
   createVersion(id: string): Promise<ExamItem | null>;
   getAuditTrail(id: string): Promise<ExamItem[]>;
+  reset?(): void;
 }

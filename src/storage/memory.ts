@@ -111,4 +111,9 @@ export class MemoryStorage implements ItemStorage {
   async getAuditTrail(id: string): Promise<ExamItem[]> {
     return this.versions.get(id) || [];
   }
+
+  reset(): void {
+    this.items.clear();
+    this.versions.clear();
+  }
 }
