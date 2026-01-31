@@ -1,27 +1,9 @@
-/**
- * DynamoDB Storage Implementation (Optional)
- *
- * This implementation uses AWS DynamoDB for persistent storage.
- *
- * To use this:
- * 1. Set environment variable: USE_DYNAMODB=true
- * 2. Configure AWS credentials (or use DynamoDB Local)
- * 3. Set DYNAMODB_TABLE_NAME (or use default "ExamItems")
- *
- * For DynamoDB Local:
- * - Download from: https://docs.aws.amazon.com/amazondynamodb/latest/developerguide/DynamoDBLocal.html
- * - Run: java -Djava.library.path=./DynamoDBLocal_lib -jar DynamoDBLocal.jar -sharedDb
- * - Set DYNAMODB_ENDPOINT=http://localhost:8000
- */
-
 import { DynamoDBClient } from '@aws-sdk/client-dynamodb';
 import {
   DynamoDBDocumentClient,
   PutCommand,
   GetCommand,
-  UpdateCommand,
-  ScanCommand,
-  QueryCommand
+  QueryCommand,
 } from '@aws-sdk/lib-dynamodb';
 import { randomUUID } from 'crypto';
 import { ExamItem, CreateItemRequest, UpdateItemRequest, ListItemsQuery } from '../types/item.js';
@@ -54,9 +36,16 @@ export class DynamoDBStorage implements ItemStorage {
       },
     };
 
+    // Write CURRENT record
     await this.client.send(new PutCommand({
       TableName: this.tableName,
-      Item: item,
+      Item: { PK: `ITEM#${item.id}`, SK: 'CURRENT', ...item },
+    }));
+
+    // Write VERSION#1 snapshot
+    await this.client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: { PK: `ITEM#${item.id}`, SK: 'VERSION#000001', ...item },
     }));
 
     return item;
@@ -65,10 +54,12 @@ export class DynamoDBStorage implements ItemStorage {
   async getItem(id: string): Promise<ExamItem | null> {
     const result = await this.client.send(new GetCommand({
       TableName: this.tableName,
-      Key: { id },
+      Key: { PK: `ITEM#${id}`, SK: 'CURRENT' },
     }));
 
-    return result.Item as ExamItem || null;
+    if (!result.Item) return null;
+    const { PK, SK, ...item } = result.Item as Record<string, unknown>;
+    return item as unknown as ExamItem;
   }
 
   async updateItem(id: string, data: UpdateItemRequest): Promise<ExamItem | null> {
@@ -87,35 +78,112 @@ export class DynamoDBStorage implements ItemStorage {
       },
     };
 
+    // Update CURRENT
     await this.client.send(new PutCommand({
       TableName: this.tableName,
-      Item: updated,
+      Item: { PK: `ITEM#${id}`, SK: 'CURRENT', ...updated },
+    }));
+
+    // Write version snapshot
+    const versionKey = String(updated.metadata.version).padStart(6, '0');
+    await this.client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: { PK: `ITEM#${id}`, SK: `VERSION#${versionKey}`, ...updated },
     }));
 
     return updated;
   }
 
   async listItems(query: ListItemsQuery): Promise<{ items: ExamItem[]; total: number }> {
-    // Note: This is a basic implementation using Scan
-    // For production, you should use Query with appropriate indexes
-    const result = await this.client.send(new ScanCommand({
+    const limit = query.limit || 10;
+    const offset = query.offset || 0;
+
+    // If filtering by subject, use the SubjectStatusIndex GSI (PK=subject, SK=SK)
+    // Query for CURRENT records only via SK = 'CURRENT'
+    if (query.subject) {
+      const result = await this.client.send(new QueryCommand({
+        TableName: this.tableName,
+        IndexName: 'SubjectStatusIndex',
+        KeyConditionExpression: 'subject = :subject AND SK = :sk',
+        ExpressionAttributeValues: {
+          ':subject': query.subject,
+          ':sk': 'CURRENT',
+        },
+        ...(query.status && {
+          FilterExpression: 'metadata.#st = :status',
+          ExpressionAttributeNames: { '#st': 'status' },
+          ExpressionAttributeValues: {
+            ':subject': query.subject,
+            ':sk': 'CURRENT',
+            ':status': query.status,
+          },
+        }),
+      }));
+
+      const allItems = (result.Items || []).map(({ PK, SK, ...item }) => item) as ExamItem[];
+      const paged = allItems.slice(offset, offset + limit);
+      return { items: paged, total: allItems.length };
+    }
+
+    // Use EntityTypeIndex GSI to query all CURRENT records without scanning
+    const result = await this.client.send(new QueryCommand({
       TableName: this.tableName,
-      Limit: query.limit || 10,
+      IndexName: 'EntityTypeIndex',
+      KeyConditionExpression: 'SK = :sk',
+      ExpressionAttributeValues: {
+        ':sk': 'CURRENT',
+        ...(query.status && { ':status': query.status }),
+      },
+      ...(query.status && {
+        FilterExpression: 'metadata.#st = :status',
+        ExpressionAttributeNames: { '#st': 'status' },
+      }),
     }));
 
-    const items = (result.Items || []) as ExamItem[];
-    return { items, total: result.Count || 0 };
+    const allItems = (result.Items || []).map(({ PK, SK, ...item }) => item) as ExamItem[];
+    const paged = allItems.slice(offset, offset + limit);
+    return { items: paged, total: allItems.length };
   }
 
   async createVersion(id: string): Promise<ExamItem | null> {
-    // TODO: Implement versioning strategy
-    // Options: Separate versions table, same table with sort key, etc.
-    throw new Error('Not implemented - define your versioning strategy');
+    const existing = await this.getItem(id);
+    if (!existing) return null;
+
+    const newVersion: ExamItem = {
+      ...existing,
+      metadata: {
+        ...existing.metadata,
+        version: existing.metadata.version + 1,
+        lastModified: Date.now(),
+      },
+    };
+
+    // Update CURRENT
+    await this.client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: { PK: `ITEM#${id}`, SK: 'CURRENT', ...newVersion },
+    }));
+
+    // Write version snapshot
+    const versionKey = String(newVersion.metadata.version).padStart(6, '0');
+    await this.client.send(new PutCommand({
+      TableName: this.tableName,
+      Item: { PK: `ITEM#${id}`, SK: `VERSION#${versionKey}`, ...newVersion },
+    }));
+
+    return newVersion;
   }
 
   async getAuditTrail(id: string): Promise<ExamItem[]> {
-    // TODO: Implement audit trail retrieval
-    // This depends on your versioning strategy
-    throw new Error('Not implemented - define your audit trail strategy');
+    const result = await this.client.send(new QueryCommand({
+      TableName: this.tableName,
+      KeyConditionExpression: 'PK = :pk AND begins_with(SK, :prefix)',
+      ExpressionAttributeValues: {
+        ':pk': `ITEM#${id}`,
+        ':prefix': 'VERSION#',
+      },
+    }));
+
+    return (result.Items || []).map(({ PK, SK, ...item }) => item) as ExamItem[];
   }
 }
