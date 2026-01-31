@@ -1,23 +1,18 @@
 import { ItemIdSchema } from '../validation/schemas.js';
+import { auditTrailNotFoundError, internalError, invalidIdError } from './errors.js';
 import { storage } from './storage.js';
 
 export async function getAuditTrailHandler(id: string) {
     try {
         const parsedId = ItemIdSchema.safeParse(id);
         if (!parsedId.success) {
-            return {
-                statusCode: 400,
-                body: { error: 'Invalid item ID', details: parsedId.error.errors },
-            };
+            return invalidIdError();;
         }
 
         const versions = await storage.getAuditTrail(parsedId.data);
 
-        if (!versions) {
-            throw new Error('Audit trail not found');
-        }
-        if (versions.length === 0) {
-            throw new Error('No audit trail entries found');
+        if (!versions || versions.length === 0) {
+            return auditTrailNotFoundError();
         }
         return {
             statusCode: 200,
@@ -25,9 +20,6 @@ export async function getAuditTrailHandler(id: string) {
         };
     } catch (error) {
         console.error('Error getting audit trail:', error);
-        return {
-            statusCode: 500,
-            body: { error: 'Internal Server Error' },
-        };
+        return internalError();
     }
 }

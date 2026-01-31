@@ -1,5 +1,6 @@
 import { ListItemsQuery } from '../types/item.js';
 import { ListItemsQuerySchema } from '../validation/schemas.js';
+import { internalError, validationError } from './errors.js';
 import { storage } from './storage.js';
 
 export async function listItemsHandler(query: Record<string, string | undefined>) {
@@ -7,10 +8,7 @@ export async function listItemsHandler(query: Record<string, string | undefined>
 
         const parsedListItem = ListItemsQuerySchema.safeParse(query);
         if (!parsedListItem.success) {
-            return {
-                statusCode: 400,
-                body: { error: 'Invalid query parameters', details: parsedListItem.error.errors },
-            };
+            return validationError(parsedListItem.error.issues);
         }
 
         const items = await storage.listItems(parsedListItem.data as ListItemsQuery);
@@ -21,9 +19,6 @@ export async function listItemsHandler(query: Record<string, string | undefined>
         };
     } catch (error) {
         console.error('Error listing items:', error);
-        return {
-            statusCode: 500,
-            body: { error: 'Internal Server Error' },
-        };
+        return internalError();
     }
 }

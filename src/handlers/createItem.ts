@@ -1,5 +1,6 @@
 import { CreateItemRequest } from '../types/item.js';
 import { CreateItemSchema } from '../validation/schemas.js';
+import { internalError, validationError } from './errors.js';
 import { storage } from './storage.js';
 
 export async function createItemHandler(data: unknown) {
@@ -7,13 +8,10 @@ export async function createItemHandler(data: unknown) {
 
         const parsed = CreateItemSchema.safeParse(data);
         if (!parsed.success) {
-            return {
-                statusCode: 400,
-                body: { error: 'Invalid item data', details: parsed.error.errors },
-            };
+            return validationError(parsed.error.issues);
         }
 
-        const newItem = await storage.createItem(data as CreateItemRequest);
+        const newItem = await storage.createItem(parsed.data);
 
         return {
             statusCode: 201,
@@ -21,9 +19,6 @@ export async function createItemHandler(data: unknown) {
         };
     } catch (error) {
         console.error('Error creating item:', error);
-        return {
-            statusCode: 500,
-            body: { error: 'Internal Server Error' },
-        };
+        return internalError();
     }
 }

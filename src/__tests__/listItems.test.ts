@@ -26,6 +26,12 @@ describe('listItemsHandler', () => {
     expect(result.statusCode).toBe(200);
   });
 
+  it('should reject invalid query params', async () => {
+    const result = await listItemsHandler({ limit: '-5' });
+    expect(result.statusCode).toBe(400);
+    expect(result.body).toHaveProperty('error.code', 'VALIDATION_ERROR');
+  });
+
   it('should filter by combined subject and status', async () => {
     await createTestItem({ subject: 'AP Physics', metadata: { author: 'a', status: 'approved', tags: [] } });
     await createTestItem({ subject: 'AP Physics', metadata: { author: 'a', status: 'draft', tags: [] } });

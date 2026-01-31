@@ -1,20 +1,17 @@
-import { ItemIdSchema } from '../validation/schemas';
-import { storage } from './storage';
+import { ItemIdSchema } from '../validation/schemas.js';
+import { internalError, invalidIdError, itemNotFoundError } from './errors.js';
+import { storage } from './storage.js';
 
 export async function createVersionHandler(id: string) {
     try {
         const parsedId = ItemIdSchema.safeParse(id);
         if (!parsedId.success) {
-            return {
-                statusCode: 400,
-                body: { error: 'Invalid item ID', details: parsedId.error.errors },
-            };
+            return invalidIdError();
         }
-
         const newVersion = await storage.createVersion(parsedId.data);
 
         if (!newVersion) {
-            throw new Error('Failed to create version');
+            return itemNotFoundError();
         }
 
         return {
@@ -23,9 +20,6 @@ export async function createVersionHandler(id: string) {
         };
     } catch (error) {
         console.error('Error creating version:', error);
-        return {
-            statusCode: 500,
-            body: { error: 'Internal Server Error' },
-        };
+        return internalError();
     }
 }
