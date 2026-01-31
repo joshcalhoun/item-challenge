@@ -3,8 +3,8 @@ import * as path from 'path';
 import { Construct } from 'constructs';
 import { Table, AttributeType, BillingMode, ProjectionType} from 'aws-cdk-lib/aws-dynamodb';
 import { FunctionProps, Runtime, Function, Code } from 'aws-cdk-lib/aws-lambda';
-import { RetentionDays } from 'aws-cdk-lib/aws-logs';
-import { LambdaIntegration, RestApi, Cors } from 'aws-cdk-lib/aws-apigateway';
+import { LogGroup, RetentionDays } from 'aws-cdk-lib/aws-logs';
+import { LambdaIntegration, RestApi, Cors, AccessLogFormat, LogGroupLogDestination, MethodLoggingLevel } from 'aws-cdk-lib/aws-apigateway';
 
 
 export class InfrastructureStack extends cdk.Stack {
@@ -97,12 +97,23 @@ export class InfrastructureStack extends cdk.Stack {
     table.grantReadWriteData(updateItemFn);
     table.grantReadWriteData(createVersionFn);
 
+    // API Gateway access log group
+    const apiLogGroup = new LogGroup(this, 'ApiAccessLogs', {
+      retention: RetentionDays.TWO_WEEKS,
+      removalPolicy: cdk.RemovalPolicy.DESTROY,
+    });
+
     // API Gateway
     const api = new RestApi(this, 'ItemApi', {
       restApiName: 'Item Management API',
+      cloudWatchRole: true,
       deployOptions: {
         throttlingRateLimit: 100,
         throttlingBurstLimit: 200,
+        accessLogDestination: new LogGroupLogDestination(apiLogGroup),
+        accessLogFormat: AccessLogFormat.jsonWithStandardFields(),
+        metricsEnabled: true,
+        loggingLevel: MethodLoggingLevel.INFO,
       },
       defaultCorsPreflightOptions: {
         allowOrigins: Cors.ALL_ORIGINS,
