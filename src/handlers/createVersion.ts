@@ -1,9 +1,17 @@
+import { ItemIdSchema } from '../validation/schemas';
 import { storage } from './storage';
 
 export async function createVersionHandler(id: string) {
     try {
-        // Assuming there's a method to create a version in storage
-        const newVersion = await storage.createVersion(id);
+        const parsedId = ItemIdSchema.safeParse(id);
+        if (!parsedId.success) {
+            return {
+                statusCode: 400,
+                body: { error: 'Invalid item ID', details: parsedId.error.errors },
+            };
+        }
+
+        const newVersion = await storage.createVersion(parsedId.data);
 
         if (!newVersion) {
             throw new Error('Failed to create version');

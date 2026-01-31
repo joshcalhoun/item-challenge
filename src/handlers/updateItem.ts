@@ -1,11 +1,27 @@
+import { ItemIdSchema, UpdateItemSchema } from '../validation/schemas.js';
 import { storage } from './storage.js';
 
 
 
-export async function updateItemHandler(id: string, data: any) {
-    // Implementation goes here
+export async function updateItemHandler(id: string, data: unknown) {
     try {
-        const updatedItem = await storage.updateItem(id, data);
+        const parsedId = ItemIdSchema.safeParse(id);
+        if (!parsedId.success) {
+            return {
+                statusCode: 400,
+                body: { error: 'Invalid item ID', details: parsedId.error.errors },
+            };
+        }
+
+        const parsedData = UpdateItemSchema.safeParse(data);
+        if (!parsedData.success) {
+            return {
+                statusCode: 400,
+                body: { error: 'Invalid update data', details: parsedData.error.errors },
+            };
+        }
+
+        const updatedItem = await storage.updateItem(parsedId.data, parsedData.data);
 
         if (!updatedItem) {
             throw new Error('Item not found for update');
